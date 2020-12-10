@@ -355,6 +355,13 @@ class FotoData(object):
                     except KeyError as e:
                         log.warning('Entry %s not found in picture database' % f)
 
+    def __str__(self):
+        out = '%-40s%-6s%-20s%-6s%-30s\n' % ('FILENAME','EXIF','DATETIME','OK','ISSUE')
+        out += '\n'
+        for i in self:
+            out += '%-40s%-6s%-20s%-6s%-30s\n' % (i['filename'],i['has_exif'],i['datetime'],i['ok'],i['issue'])
+        return out
+
     def __iter__(self):
         self.keys = list(self.db.keys())
         return self
@@ -520,13 +527,11 @@ def main(args):
             if args.out != None:
                 foto_db.csvwrite(args.out,**filter)
             else:
-                for i in foto_db:
-                    print(i)
+                print('%s' % foto_db)
         if args.command == 'issues':
             p = foto_db.problems()
             if args.out == None:
-                for i in p:
-                    print(i)
+                print('%s' % p)
             else:
                 p.csvwrite(args.out,**filter)
         if args.command == 'remove':
