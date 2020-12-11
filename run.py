@@ -489,6 +489,8 @@ class PictureUpdater(object):
         self.EXIT = CleanExit()
 
     def write_fixes(self, force=False):
+        file_counter = 0
+        write_counter = 0
         if not force:
             log.warning('not really writing files, use --force')
         for picture in self.db:
@@ -512,15 +514,19 @@ class PictureUpdater(object):
                 img.datetime = date
                 img.datetime_original = date
                 img.datetime_digitized = date
+                file_counter = file_counter + 1
                 if force:
                     log.info('writing file %s' % filename)
                     with open(filename,'wb') as new_file:
                         new_file.write(img.get_file())
                         new_file.close()
+                        write_counter = write_counter + 1
             else:
                 log.warning('picture %s in db not on filesystem' % filename)
             if self.EXIT.exit:
                 break
+        log.info('updated %s files' % write_counter)
+        log.debug('found %s files for updating' % file_counter)
 
 
 def get_parser(args):
