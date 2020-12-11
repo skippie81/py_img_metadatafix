@@ -118,7 +118,7 @@ class DirData(object):
             if not rebuild:
                 log.info('Updating current Date Map db %s' % db_file)
                 dir_list = DirData.load(db_file).db
-                log.info('Current Date Map db holds %i direcotry items' % len(list(dir_list.keys())))
+                log.info('Current Date Map db holds %i directory items' % len(list(dir_list.keys())))
             else:
                 log.warning('Overwriting current Date Map db %s' % db_file)
 
@@ -236,7 +236,7 @@ class PhotoData(object):
                 data['exif']['datetime'] = img.datetime
                 try:
                     date_check = datetime.datetime.strptime(data['exif']['datetime'], EXIF_DATETIME_FORMAT)
-                    log.debug('cheking date %s' % date_check)
+                    log.debug('Checking date %s' % date_check)
                     if date_check.year == 0:
                         raise ValueError()
                 except ValueError:
@@ -692,7 +692,7 @@ class PictureUpdater(object):
                     try:
                         img = exif.Image(f)
                     except plum.UnpackError as e:
-                        log.error('Error reading currend file %s' % filename)
+                        log.error('Error reading current file %s' % filename)
                         log.debug('%s' % e)
                         continue
                     f.close()
