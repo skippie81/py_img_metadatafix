@@ -500,7 +500,7 @@ class PhotoData(object):
             for i in self:
                 i['can_fix'] = None
                 if not i['ok']:
-                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA', 'NO DATETIME IN EXIF']:
+                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA', 'NO DATETIME IN EXIF', 'INVALID DATETIME ENTRY']:
                         i['can_fix'] = True
                     else:
                         i['can_fix'] = False
