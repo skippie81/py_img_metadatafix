@@ -53,16 +53,16 @@ pip3 install exif
 # Help
 
 ```
-Fixing old picture timestamps for correct import in Photos
 usage: run.py [-h] [-v] [--date-map DATE_MAP]
-              [--picture-database PICTURE_DATABASE] -d DIR [--force]
+              [--picture-database PICTURE_DATABASE] -d DIR
               command ...
 
 positional arguments:
   command
-    list                List the Picure Database
+    list                List the Picture Database
     issues              list the problematic files in the Picture Database
     remove              remove file(s) from Picture Database
+    add                 add single file to Picture Database
     create              create data map
     scan                create picture database
     map                 map directory date db over file
@@ -78,7 +78,6 @@ optional arguments:
   --picture-database PICTURE_DATABASE
                         picture db file
   -d DIR, --dir DIR     process entire dir
-  --force               force file overwrite
 ```
 
 ```
@@ -100,11 +99,47 @@ optional arguments:
 ```
 
 ```
-usage: run.py remove [-h] -n NAME
+usage: run.py remove [-h] [-n NAME | -r REGEX]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -n NAME, --name NAME  filename selector
+  -r REGEX, --regex REGEX
+                        regex selector
+```
+
+```
+usage: run.py add [-h] -n NAME [--force]
 
 optional arguments:
   -h, --help            show this help message and exit
   -n NAME, --name NAME  filename
+  --force               force db update
+```
+
+```
+usage: run.py create [-h] [--rebuild] [--force]
+
+optional arguments:
+  -h, --help  show this help message and exit
+  --rebuild   rebuild existing db
+  --force     force file overwrite
+```
+
+```
+usage: run.py scan [-h] [--rebuild] [--force]
+
+optional arguments:
+  -h, --help  show this help message and exit
+  --rebuild   rebuild existing db
+  --force     force file overwrite
+```
+
+```
+usage: run.py map [-h]
+
+optional arguments:
+  -h, --help  show this help message and exit
 ```
 
 ```
@@ -113,6 +148,14 @@ usage: run.py info [-h] -f FILE
 optional arguments:
   -h, --help            show this help message and exit
   -f FILE, --file FILE  filename
+```
+
+```
+usage: run.py fix [-h] [--regex REGEX]
+
+optional arguments:
+  -h, --help     show this help message and exit
+  --regex REGEX  set regex to find dates in files
 ```
 
 ```
