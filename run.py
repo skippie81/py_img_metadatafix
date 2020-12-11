@@ -507,6 +507,7 @@ class PictureUpdater(object):
             log.debug('Updating %s' % filename)
 
             if os.path.isfile(filename):
+                file_counter = file_counter + 1
                 with open(filename, 'rb') as f:
                     img = exif.Image(f)
                     f.close()
@@ -519,12 +520,14 @@ class PictureUpdater(object):
                         img.set('datetime', date)
                     else:
                         log.debug('Original file has exif')
+                        if img.datetime == date:
+                            log.debug('Image already on correct timestamp')
+                            continue
                 img.datetime = date
                 if 'datetime_original' in list(dir(img)):
                     img.datetime_original = date
                 if 'datetime_digitized' in list(dir(img)):
                     img.datetime_digitized = date
-                file_counter = file_counter + 1
                 if force:
                     log.info('writing file %s' % filename)
                     with open(filename,'wb') as new_file:
