@@ -26,6 +26,17 @@ IMAGE_EXTENSIONS = ['jpg','jpeg']
 IMG_FILENAME_REGEX = 'IMG-([0-9]{4})([0-9]{2})([0-9]{2})-WA.*\.jpg$'
 
 
+class CleanExit(object):
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.sigint_handler)
+        self.exit = False
+
+    def sigint_handler(self, signal_received, frame):
+        log.warning('CTRL-C pressed, exiting ...')
+        log.debug('signal received %s' % signal_received)
+        self.exit = True
+
+
 class DirData(object):
     @classmethod
     def scan(cls, path, db_file):
@@ -42,7 +53,7 @@ class DirData(object):
             relative_filename = file.replace(path, '')
             dir_key = os.path.dirname(relative_filename)
             if dir_key not in dir_list.keys():
-                data = FotoData.process_file(file)
+                data = PhotoData.process_file(file)
                 if data['ok']:
                     log.debug('found dir %s with date %s' % (dir_key, data['exif']['datetime']))
                     dir_list[dir_key] = data['exif']['datetime']
@@ -75,7 +86,7 @@ class DirData(object):
             return None
 
 
-class FotoData(object):
+class PhotoData(object):
 
     CSV_FIELDNAMES = ['filename', 'has_exif', 'datetime', 'datetime_original',
                       'datetime_digitized', 'ok', 'issue', 'can_fix']
@@ -98,7 +109,7 @@ class FotoData(object):
         if os.path.basename(file_name).split('.').pop().lower() not in IMAGE_EXTENSIONS:
             return {'filename': file_name,'ok': False, 'issue': 'NO PICTURE FILE'}
         try:
-            img = FotoData.get_exif_from_file(file_name)
+            img = PhotoData.get_exif_from_file(file_name)
         except Exception as e:
             return {'filename': file_name, 'ok': False, 'issue': '%s' % e}
         data = {
@@ -135,11 +146,11 @@ class FotoData(object):
                 file_list.append(os.path.join(root, file))
         photo_data = []
         for f in file_list:
-            photo_data.append(FotoData.process_file(f))
+            photo_data.append(PhotoData.process_file(f))
         db = {}
         for f in photo_data:
             db[f['filename']] = f
-        return FotoData(path, db, db_file=db_file)
+        return PhotoData(path, db, db_file=db_file)
 
     @classmethod
     def load(cls, path, db_file):
@@ -171,7 +182,7 @@ class FotoData(object):
                 db[k] = i
                 need_safe = True
 
-        fd = FotoData(path, db, db_file=db_file)
+        fd = PhotoData(path, db, db_file=db_file)
         if need_safe:
             log.debug('Saving updated db on load')
             fd.safe()
@@ -198,7 +209,7 @@ class FotoData(object):
         for k in self.db.keys():
             if not self.db[k]['ok']:
                 db[k] = self.db[k]
-        return FotoData(self.path, db, '%s.problems' % self.db_file)
+        return PhotoData(self.path, db, '%s.problems' % self.db_file)
 
     def dir_date_map(self,date_db):
         for k in self.db.keys():
@@ -231,7 +242,7 @@ class FotoData(object):
             if not self.db[k]['ok']:
                 if self.db[k]['issue'] == 'NO DATETIME IN EXIF':
                     log.debug('checking %s for other metadata' % k)
-                    img = FotoData.get_exif_from_file(os.path.join(self.path, k))
+                    img = PhotoData.get_exif_from_file(os.path.join(self.path, k))
                     log.debug('%s' % dir(img))
                     issue = 'DATETIME FOUND IN OTHER METADATA'
                     try:
@@ -417,6 +428,7 @@ class FotoData(object):
 
 
 class PictureUpdater(object):
+    EXIT = CleanExit()
 
     def __init__(self, db, path='.'):
         self.db = db
@@ -453,6 +465,8 @@ class PictureUpdater(object):
                         new_file.close()
             else:
                 log.warning('picture %s in db not on filesystem' % filename)
+            if self.EXIT.exit:
+                break
 
 
 def get_parser(args):
@@ -506,7 +520,7 @@ def main(args):
         log.debug('Debug logging enabled')
 
     if args.command == 'info':
-        img = FotoData.get_exif_from_file(args.file)
+        img = PhotoData.get_exif_from_file(args.file)
         print(dir(img))
         sys.exit(0)
 
@@ -541,7 +555,7 @@ def main(args):
             else:
                 log.warning('Overwriting DB')
         log.info('Creating picture database for %s' % args.dir)
-        photo_db = FotoData.scan(args.dir, args.picture_database)
+        photo_db = PhotoData.scan(args.dir, args.picture_database)
         photo_db.safe()
     else:
         if not os.path.isfile(args.picture_database):
@@ -550,7 +564,7 @@ def main(args):
         if not os.path.isfile(args.date_map):
             log.error('No directory data map %s found. Run create first' % args.date_map)
             sys.exit(1)
-        photo_db = FotoData.load(args.dir, args.picture_database)
+        photo_db = PhotoData.load(args.dir, args.picture_database)
         dir_db = DirData.load(args.date_map)
 
         if args.command == 'list':
