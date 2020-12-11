@@ -12,7 +12,6 @@ import csv
 import re
 import math
 import plum
-import warnings
 
 log = logging.getLogger('EXIF Modifier')
 log.setLevel(logging.INFO)
@@ -221,7 +220,9 @@ class PhotoData(object):
             return {'filename': file_name, 'ok': False, 'issue': 'NO PICTURE FILE'}
         try:
             img = PhotoData.get_exif_from_file(os.path.join(base_path, file_name))
-        except Exception:
+        except plum.UnpackError:
+            return {'filename': file_name, 'ok': False, 'issue': 'ERROR READING EXIF'}
+        except ValueError:
             return {'filename': file_name, 'ok': False, 'issue': 'ERROR READING EXIF'}
         data = {
             'filename': file_name,
@@ -231,30 +232,29 @@ class PhotoData(object):
         }
 
         if img.has_exif:
-#            with warnings.catch_warnings() as w:
+            try:
+                data['exif']['datetime'] = img.datetime
                 try:
-                    data['exif']['datetime'] = img.datetime
-                    try:
-                        date_check = datetime.datetime.strptime(data['exif']['datetime'], EXIF_DATETIME_FORMAT)
-                        log.debug('cheking date %s' % date_check)
-                        if date_check.year == 0:
-                            raise ValueError()
-                    except ValueError:
-                        data['exif'] = {}
-                        data['issue'] = 'INVALID DATETIME ENTRY'
-                        return data
-                    data['ok'] = True
-                except AttributeError:
-                    data['issue'] = 'NO DATETIME IN EXIF'
+                    date_check = datetime.datetime.strptime(data['exif']['datetime'], EXIF_DATETIME_FORMAT)
+                    log.debug('cheking date %s' % date_check)
+                    if date_check.year == 0:
+                        raise ValueError()
+                except ValueError:
+                    data['exif'] = {}
+                    data['issue'] = 'INVALID DATETIME ENTRY'
                     return data
-                try:
-                    data['exif']['datetime_original'] = img.datetime_original
-                except AttributeError:
-                    data['exif']['datetime_original'] = img.datetime
-                try:
-                    data['exif']['datetime_digitized'] = img.datetime_digitized
-                except AttributeError:
-                    data['exif']['datetime_digitized'] = img.datetime
+                data['ok'] = True
+            except AttributeError:
+                data['issue'] = 'NO DATETIME IN EXIF'
+                return data
+            try:
+                data['exif']['datetime_original'] = img.datetime_original
+            except AttributeError:
+                data['exif']['datetime_original'] = img.datetime
+            try:
+                data['exif']['datetime_digitized'] = img.datetime_digitized
+            except AttributeError:
+                data['exif']['datetime_digitized'] = img.datetime
         else:
             data['issue'] = 'NO METADATA'
         return data
@@ -505,7 +505,8 @@ class PhotoData(object):
             for i in self:
                 i['can_fix'] = None
                 if not i['ok']:
-                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA', 'NO DATETIME IN EXIF', 'INVALID DATETIME ENTRY']:
+                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA',
+                                          'NO DATETIME IN EXIF', 'INVALID DATETIME ENTRY']:
                         i['can_fix'] = True
                     else:
                         i['can_fix'] = False
