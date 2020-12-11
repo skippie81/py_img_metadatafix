@@ -690,7 +690,7 @@ class PictureUpdater(object):
                 with open(filename, 'rb') as f:
                     try:
                         img = exif.Image(f)
-                    except plum._exceptions.UnpackError as e:
+                    except plum.UnpackError as e:
                         log.error('Error reading currend file %s' % filename)
                         log.debug('%s' % e)
                         continue
