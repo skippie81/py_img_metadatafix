@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os,sys
+import os, sys, signal
 import logging
 import exif
 import datetime
@@ -13,8 +13,8 @@ log.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 fh = logging.FileHandler('exif.log')
-fh.setFormatter(logging.INFO)
-fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setLevel(logging.INFO)
+fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 ch.setFormatter(fmt)
 fh.setFormatter(fmt)
 log.addHandler(ch)
@@ -22,33 +22,35 @@ log.addHandler(fh)
 
 
 EXIF_DATETIME_FORMAT = '%Y:%m:%d %H:%M:%S'
-IMAGE_EXTENTIONS = ['jpg','jpeg']
+IMAGE_EXTENSIONS = ['jpg','jpeg']
 IMG_FILENAME_REGEX = 'IMG-([0-9]{4})([0-9]{2})([0-9]{2})-WA.*\.jpg$'
+
 
 class DirData(object):
     @classmethod
-    def scan(cls,dir,db_file):
-        dirlist = {}
-        filelist = []
-        for root,dirs,files in os.walk(dir):
+    def scan(cls, path, db_file):
+        dir_list = {}
+        file_list = []
+        for root, dirs, files in os.walk(path):
             log.debug('root: %s' % root)
             log.debug('dirs: %s' % dirs)
             log.debug('files: %s' % files)
             for file in files:
-                filelist.append(os.path.join(root,file))
+                file_list.append(os.path.join(root, file))
 
-        for file in filelist:
-            dirkey = os.path.dirname(file.replace(args.dir,''))
-            if dirkey not in dirlist.keys():
+        for file in file_list:
+            relative_filename = file.replace(path, '')
+            dir_key = os.path.dirname(relative_filename)
+            if dir_key not in dir_list.keys():
                 data = FotoData.process_file(file)
                 if data['ok']:
-                    log.debug('found dir %s with date %s' % (dirkey,data['exif']['datetime']) )
-                    dirlist[dirkey] = data['exif']['datetime']
+                    log.debug('found dir %s with date %s' % (dir_key, data['exif']['datetime']))
+                    dir_list[dir_key] = data['exif']['datetime']
 
-        return DirData(data,db_file)
+        return DirData(dir_list, db_file)
 
     @classmethod
-    def load(cls,db_file):
+    def load(cls, db_file):
         try:
             with open(db_file,'r') as f:
                 db = json.load(f)
@@ -57,7 +59,7 @@ class DirData(object):
             raise e
         return DirData(db,db_file)
 
-    def __init__(self,db,db_file='dirlist.json'):
+    def __init__(self, db, db_file='dirlist.json'):
         self.db = db
         self.db_file = db_file
 
@@ -66,39 +68,41 @@ class DirData(object):
             json.dump(self.db,db_file,indent=4)
             db_file.close()
 
-    def get(self,dirkey):
+    def get(self, dirkey):
         try:
             return self.db[dirkey]
         except KeyError:
             return None
 
+
 class FotoData(object):
 
-    CSV_FIELDNAMES = ['filename','has_exif','datetime','datetime_original','datetime_digitized','ok','issue','can_fix']
+    CSV_FIELDNAMES = ['filename', 'has_exif', 'datetime', 'datetime_original',
+                      'datetime_digitized', 'ok', 'issue', 'can_fix']
 
     @classmethod
-    def get_exif_from_file(cls,filename):
-        with open(filename,'rb') as imagefile:
+    def get_exif_from_file(cls, filename):
+        with open(filename, 'rb') as image_file:
             try:
-                img = exif.Image(imagefile)
+                img = exif.Image(image_file)
             except Exception as e:
-                imagefile.close()
+                image_file.close()
                 raise e
             log.debug('has exif: %s' % img.has_exif)
-            imagefile.close()
+            image_file.close()
         return img
 
     @classmethod
-    def process_file(cls,filename):
-        log.info('Processing file %s' % filename)
-        if os.path.basename(filename).split('.').pop().lower() not in IMAGE_EXTENTIONS:
-            return {'filename': filename,'ok': False, 'issue': 'NO PICTURE FILE'}
+    def process_file(cls, file_name):
+        log.info('Processing file %s' % file_name)
+        if os.path.basename(file_name).split('.').pop().lower() not in IMAGE_EXTENSIONS:
+            return {'filename': file_name,'ok': False, 'issue': 'NO PICTURE FILE'}
         try:
-            img = get_exif_from_file(filename)
+            img = FotoData.get_exif_from_file(file_name)
         except Exception as e:
-            return {'filename': filename,'ok': False,'issue': '%s' % e}
+            return {'filename': file_name, 'ok': False, 'issue': '%s' % e}
         data = {
-            'filename': filename,
+            'filename': file_name,
             'exif': {},
             'has_exif': img.has_exif,
             'ok': False
@@ -118,30 +122,30 @@ class FotoData(object):
             try:
                 data['exif']['datetime_digitized'] = img.datetime_digitized
             except AttributeError:
-                date['exif']['datetime_digitized'] = img.datetime
+                data['exif']['datetime_digitized'] = img.datetime
         else:
             data['issue'] = 'NO METADATA'
         return data
 
     @classmethod
-    def scan(cls,path,db_file='db.json'):
-        filelist = []
-        for root,dirs,files in os.walk(dir):
+    def scan(cls, path, db_file='db.json'):
+        file_list = []
+        for root, dirs, files in os.walk(path):
             for file in files:
-                filelist.append(os.path.join(root,file))
-        fotodata = []
-        for f in filelist:
-            fotodata.append(FotoData.process_file(file))
+                file_list.append(os.path.join(root, file))
+        photo_data = []
+        for f in file_list:
+            photo_data.append(FotoData.process_file(f))
         db = {}
-        for f in fotodata:
+        for f in photo_data:
             db[f['filename']] = f
-        return FotoData(path,db,db_file=db_file)
+        return FotoData(path, db, db_file=db_file)
 
     @classmethod
-    def load(cls,path,db_file):
+    def load(cls, path, db_file):
         try:
-            log.debug('loading fotodb from %s' % db_file)
-            with open(db_file,'r') as f:
+            log.debug('loading photo db from %s' % db_file)
+            with open(db_file, 'r') as f:
                 db = json.load(f)
                 f.close()
         except Exception as e:
@@ -156,35 +160,35 @@ class FotoData(object):
             db = new_db
             need_safe = True
 
-        r = re.compile('^%s' % os.path.join(path,''))
+        r = re.compile('^%s' % os.path.join(path, ''))
         for f in list(db.keys()):
             if r.match(f):
-                log.debug('found basepath in %s' % f)
+                log.debug('found absolute path in %s' % f)
                 k = r.sub('',f)
                 log.debug('%s new key is %s' % (f,k))
                 i = db.pop(f)
-                i['filename'] = r.sub('',i['filename'])
+                i['filename'] = r.sub('', i['filename'])
                 db[k] = i
                 need_safe = True
 
-        fd = FotoData(path,db,db_file=db_file)
+        fd = FotoData(path, db, db_file=db_file)
         if need_safe:
             log.debug('Saving updated db on load')
             fd.safe()
         return fd
 
-    def __init__(self,path,db,db_file='db.json'):
+    def __init__(self, path, db, db_file='db.json'):
         self.path = path
         self.db = db
         self.db_file = db_file
 
     def safe(self):
         log.debug('saving %s' % self.db_file)
-        with open(self.db_file,'w') as f:
-            json.dump(self.db,f,indent=4)
+        with open(self.db_file, 'w') as f:
+            json.dump(self.db, f, indent=4)
             f.close()
 
-    def remove(self,name):
+    def remove(self, name):
         for k in list(self.db.keys()):
             if os.path.basename(k) == name:
                 self.db.pop(k)
@@ -194,38 +198,40 @@ class FotoData(object):
         for k in self.db.keys():
             if not self.db[k]['ok']:
                 db[k] = self.db[k]
-        return FotoData(self.path,db,'%s.problems' % self.db_file)
+        return FotoData(self.path, db, '%s.problems' % self.db_file)
 
     def dir_date_map(self,date_db):
         for k in self.db.keys():
             if not self.db[k]['ok'] and self.db[k]['issue'] in ['NO METADATA','NO DATETIME IN EXIF']:
-                dirkey = os.path.dirname(k)
-                log.debug('looking for %s in date map' % dirkey)
-                date = date_db.get(dirkey)
-                if date != None:
-                    log.info('Updating picutre file %s metata to same as dir data %s' % (k,date))
-                    self.db[k]['exif'] = { 'datetime': date, 'datetime_original': date, 'datetime_digitized': date }
+                dir_key = os.path.dirname(k)
+                log.debug('looking for %s in date map' % dir_key)
+                date = date_db.get(dir_key)
+                if date is not None:
+                    log.info('Updating picture file %s metadata to same as dir data %s' % (k,date))
+                    self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
                     self.db[k]['issue'] = 'METADATA MATCHED TO FILES IN SAME DIR'
                 else:
-                    log.debug('%s not found in dirmap' % dirkey)
-                    dirkey = os.path.dirname(dirkey)
-                    while dirkey != '':
-                        log.debug('trying key %s' % dirkey)
-                        date = date_db.get(dirkey)
-                        if date != None:
-                            log.info('Updating picture file %s metadata to same as higher level dir %s date is %s' % (k,dirkey,date))
-                            self.db[k]['exif'] = { 'datetime': date, 'datetime_original': date, 'datetime_digitized': date }
-                            self.db[k]['issue'] = 'METADATA MATCHED TO FILE IN HIGHER DIR %s' % dirkey
+                    log.debug('%s not found in directory map' % dir_key)
+                    dir_key = os.path.dirname(dir_key)
+                    while dir_key != '':
+                        log.debug('trying key %s' % dir_key)
+                        date = date_db.get(dir_key)
+                        if date is not None:
+                            log.info('Updating picture file %s metadata to same as'
+                                     'higher level dir %s date is %s' % (k, dir_key, date))
+                            self.db[k]['exif'] = {'datetime': date, 'datetime_original': date,
+                                                  'datetime_digitized': date}
+                            self.db[k]['issue'] = 'METADATA MATCHED TO FILE IN HIGHER DIR %s' % dir_key
                             break
-                        dirkey = os.path.dirname(dirkey)
+                        dir_key = os.path.dirname(dir_key)
 
-    def fix(self,regex=IMG_FILENAME_REGEX):
+    def fix(self, regex=IMG_FILENAME_REGEX):
         r = re.compile(regex)
         for k in self.db.keys():
             if not self.db[k]['ok']:
                 if self.db[k]['issue'] == 'NO DATETIME IN EXIF':
                     log.debug('checking %s for other metadata' % k)
-                    img = FotoData.get_exif_from_file(os.path.join(self.path,k))
+                    img = FotoData.get_exif_from_file(os.path.join(self.path, k))
                     log.debug('%s' % dir(img))
                     issue = 'DATETIME FOUND IN OTHER METADATA'
                     try:
@@ -238,9 +244,9 @@ class FotoData(object):
                             if r.match(os.path.basename(k)):
                                 log.debug('regex matched')
                                 groups = r.match(os.path.basename(k)).groups()
-                                date = '%s:%s:%s 12:00:00' % (groups[0],groups[1],groups[2])
+                                date = '%s:%s:%s 12:00:00' % (groups[0], groups[1], groups[2])
                                 try:
-                                    datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+                                    datetime.datetime.strptime(date, EXIF_DATETIME_FORMAT)
                                 except ValueError as e:
                                     log.error('regex match dit not have valid datetime for %s' % date)
                                     continue
@@ -248,7 +254,7 @@ class FotoData(object):
                                 issue = 'DATETIME FOUND IN FILENAME'
                             else:
                                 continue
-                    log.info('updating %s datetime to %s' % (k,date))
+                    log.info('updating %s datetime to %s' % (k, date))
                     self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
                     self.db[k]['issue'] = issue
                 elif self.db[k]['issue'] == 'NO METADATA':
@@ -256,25 +262,26 @@ class FotoData(object):
                     if r.match(os.path.basename(k)):
                         log.debug('regex matched')
                         groups = r.match(os.path.basename(k)).groups()
-                        date = '%s:%s:%s 12:00:00' % (groups[0],groups[1],groups[2])
+                        date = '%s:%s:%s 12:00:00' % (groups[0], groups[1], groups[2])
                         try:
-                            datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+                            datetime.datetime.strptime(date, EXIF_DATETIME_FORMAT)
                             log.debug('date out of regex is %s' % date)
                             issue = 'DATETIME FOUND IN FILENAME'
-                            self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
+                            self.db[k]['exif'] = {'datetime': date, 'datetime_original': date,
+                                                  'datetime_digitized': date}
                             self.db[k]['issue'] = issue
                         except ValueError as e:
                             log.error('regex match dit not have valid datetime for %s' % date)
                             continue
 
-    def csvwrite(self,filename,**kwargs):
-        with open(filename,'w') as csvfile:
-            csvwriter = csv.DictWriter(csvfile,fieldnames=self.CSV_FIELDNAMES)
-            csvwriter.writeheader()
+    def csv_write(self, filename, **kwargs):
+        with open(filename,'w') as csv_file:
+            csv_writer = csv.DictWriter(csv_file, fieldnames=self.CSV_FIELDNAMES)
+            csv_writer.writeheader()
             for i in self:
                 i['can_fix'] = None
                 if not i['ok']:
-                    if i['issue'] not in ['NO PICTURE FILE','NO METADATA','NO DATETIME IN EXIF']:
+                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA', 'NO DATETIME IN EXIF']:
                         i['can_fix'] = True
                     else:
                         i['can_fix'] = False
@@ -282,43 +289,43 @@ class FotoData(object):
                 do_write = True
                 for key in kwargs:
                     match = True
-                    skey = key
+                    s_key = key
                     if key.endswith('!'):
                         match = False
-                        skey = key.replace('!','')
+                        s_key = key.replace('!', '')
 
                     try:
-                        if type(i[skey]) == type(True):
-                            if kwargs[key].lower() in ['y','yes','true']:
+                        if type(i[s_key]) == type(True):
+                            if kwargs[key].lower() in ['y', 'yes', 'true']:
                                 value = True
                             else:
                                 value = False
                         else:
-                            if kwargs[key].lower() in ['null','none']:
+                            if kwargs[key].lower() in ['null', 'none']:
                                 value = None
                             else:
                                 value = kwargs[key]
 
-                        if match and i[skey] != value:
+                        if match and i[s_key] != value:
                             do_write = False
-                        if not match and i[skey] == value:
+                        if not match and i[s_key] == value:
                             do_write = False
                     except KeyError as e:
                         log.error('no key %s' % e)
                         sys.exit(1)
 
                 if do_write:
-                    csvwriter.writerow(i)
+                    csv_writer.writerow(i)
 
-            csvfile.close()
+            csv_file.close()
 
-    def update_from_file(self,filename,field='issue',value='MANUAL FIX',force=False):
-        with open(filename,'r') as csvfile:
-            reader = csv.DictReader(csvfile,fieldnames=self.CSV_FIELDNAMES)
+    def update_from_file(self, filename, field='issue', value='MANUAL FIX', force=False):
+        with open(filename, 'r') as csv_file:
+            reader = csv.DictReader(csv_file, fieldnames=self.CSV_FIELDNAMES)
             for i in reader:
                 if i[field] == value:
                     f = i['filename']
-                    log.debug('Item markt for manual update: %s' % f)
+                    log.debug('Item marked for manual update: %s' % f)
                     try:
                         try:
                             if not self.db[f]['ok']:
@@ -326,22 +333,24 @@ class FotoData(object):
 
                                 if 'exif' not in self.db[f].keys():
                                     log.debug('no exif for db entry yet creating')
-                                    self.db[f]['exif'] = {'datetime': None, 'datetime_original': None, 'datetime_digitized': None}
+                                    self.db[f]['exif'] = {'datetime': None, 'datetime_original': None,
+                                                          'datetime_digitized': None}
                                 elif 'datetime' not in self.db[f]['exif'].keys():
                                     log.debug('no datetime key in current exif creating')
-                                    self.db[f]['exif'] = {'datetime': None, 'datetime_original': None, 'datetime_digitized': None}
+                                    self.db[f]['exif'] = {'datetime': None, 'datetime_original': None,
+                                                          'datetime_digitized': None}
                                 else:
                                     log.debug('current exif: %s' % self.db[f]['exif'])
 
-                                if self.db[f]['exif']['datetime'] == None or force:
+                                if self.db[f]['exif']['datetime'] is None or force:
                                     log.debug('loading datetime for manual update file')
                                     date = i['datetime']
                                     log.debug('found %s' % date)
-                                    if i['datetime_original'] != None and i['datetime_original'] != '':
+                                    if i['datetime_original'] is not None and i['datetime_original'] != '':
                                         date_original = i['datetime_original']
                                     else:
                                         date_original = date
-                                    if i['datetime_digitized'] != None and i['datetime_digitized'] != '':
+                                    if i['datetime_digitized'] is not None and i['datetime_digitized'] != '':
                                         date_digitized = i['datetime_digitized']
                                     else:
                                         date_digitized = date
@@ -357,7 +366,8 @@ class FotoData(object):
                                         sys.exit(1)
                                 else:
                                     log.debug('there is data in exif')
-                                    log.warning('not updating entry %s as there is alreada a date set %s. use --force to overwrite' % (f,self.db[f]['exif']['datetime']) )
+                                    log.warning('not updating entry %s as there is alreada a date set %s.'
+                                                'use --force to overwrite' % (f,self.db[f]['exif']['datetime']))
                             else:
                                 log.info('a fix was already done for %s use --force to overwrite' % f)
                         except KeyError as e:
@@ -367,10 +377,10 @@ class FotoData(object):
                         log.warning('Entry %s not found in picture database' % f)
 
     def __str__(self):
-        out = '%-40s%-6s%-20s%-6s%-30s\n' % ('FILENAME','EXIF','DATETIME','OK','ISSUE')
+        out = '%-40s%-6s%-20s%-6s%-30s\n' % ('FILENAME', 'EXIF', 'DATETIME', 'OK', 'ISSUE')
         out += '\n'
         for i in self:
-            out += '%-40s%-6s%-20s%-6s%-30s\n' % (i['filename'],i['has_exif'],i['datetime'],i['ok'],i['issue'])
+            out += '%-40s%-6s%-20s%-6s%-30s\n' % (i['filename'], i['has_exif'], i['datetime'], i['ok'], i['issue'])
         return out
 
     def __iter__(self):
@@ -405,30 +415,31 @@ class FotoData(object):
             pass
         return item
 
+
 class PictureUpdater(object):
 
-    def __init__(self,db,dir='.'):
+    def __init__(self, db, path='.'):
         self.db = db
-        self.dir = dir
+        self.dir = path
 
-    def write_fixes(self,force=False):
+    def write_fixes(self, force=False):
         if not force:
             log.warning('not really writing files, use --force')
         for picture in self.db:
-            if picture['datetime'] == None:
-                log.debug('not touching %s as no datetime in db' % filename)
+            if picture['datetime'] is None:
+                log.debug('not touching %s as no datetime in db' % picture['filename'])
                 continue
             filename = os.path.join(self.dir,picture['filename'])
             date = picture['datetime']
             try:
-                datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+                datetime.datetime.strftime(date, EXIF_DATETIME_FORMAT)
             except ValueError as e:
-                log.error('Datetime % is not a valide datetime to format %s' % (date,EXIF_DATETIME_FORMAT))
+                log.error('Datetime % is not a valid datetime to format %s' % (date, EXIF_DATETIME_FORMAT))
                 sys.exit(1)
             log.debug('Updating %s' % filename)
 
             if os.path.isfile(filename):
-                with open(filename,'rb') as f:
+                with open(filename, 'rb') as f:
                     img = exif.Image(f)
                     f.close()
                 log.debug('updating exif to date %s' % date)
@@ -443,47 +454,49 @@ class PictureUpdater(object):
             else:
                 log.warning('picture %s in db not on filesystem' % filename)
 
+
 def get_parser(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument('-v','--verbose',help='debug output',action='store_true')
-    parser.add_argument('--date-map',help='dir date map',default='dirlist.json')
-    parser.add_argument('--picture-database',help='picture db file',default='db.json')
-    parser.add_argument('-d','--dir',help='process entire dir',required=True)
-    parser.add_argument('--force',help='force file overwrite',action='store_true')
+    parser.add_argument('-v', '--verbose', help='debug output', action='store_true')
+    parser.add_argument('--date-map', help='dir date map', default='dirlist.json')
+    parser.add_argument('--picture-database', help='picture db file', default='db.json')
+    parser.add_argument('-d','--dir', help='process entire dir', required=True)
+    parser.add_argument('--force', help='force file overwrite', action='store_true')
 
-    command = parser.add_subparsers(dest='command',metavar='command',required=True)
+    command = parser.add_subparsers(dest='command', metavar='command', required=True)
 
-    list = command.add_parser('list',help='List the Picure Database')
-    list.add_argument('-o','--out',help='output to csv')
-    list.add_argument('--filter',help='filter output with field=value,field2=value2,...')
+    list = command.add_parser('list',help='List the Picture Database')
+    list.add_argument('-o', '--out', help='output to csv')
+    list.add_argument('--filter', help='filter output with field=value,field2=value2,...')
 
-    issues = command.add_parser('issues',help='list the problematic files in the Picture Database')
-    issues.add_argument('-o','--out',help='output to csv')
-    issues.add_argument('--filter',help='filter output with field=value,field2=value2,...')
+    issues = command.add_parser('issues', help='list the problematic files in the Picture Database')
+    issues.add_argument('-o', '--out', help='output to csv')
+    issues.add_argument('--filter', help='filter output with field=value,field2=value2,...')
 
-    remove = command.add_parser('remove',help='remove file(s) from Picture Database')
-    remove.add_argument('-n','--name',help='filename',required=True)
+    remove = command.add_parser('remove', help='remove file(s) from Picture Database')
+    remove.add_argument('-n', '--name', help='filename',required=True)
 
-    create = command.add_parser('create',help='create data map')
+    create = command.add_parser('create', help='create data map')
 
-    scan = command.add_parser('scan',help='create picture database')
+    scan = command.add_parser('scan', help='create picture database')
 
-    map = command.add_parser('map',help='map directory date db over file')
+    mapper = command.add_parser('map', help='map directory date db over file')
 
-    info = command.add_parser('info',help='get exif info')
-    info.add_argument('-f','--file',help='filename',required=True)
+    info = command.add_parser('info', help='get exif info')
+    info.add_argument('-f', '--file', help='filename', required=True)
 
-    fix = command.add_parser('fix',help='run fixes')
-    fix.add_argument('--regex',help='set regex to find dates in files',default=IMG_FILENAME_REGEX)
+    fix = command.add_parser('fix', help='run fixes')
+    fix.add_argument('--regex', help='set regex to find dates in files', default=IMG_FILENAME_REGEX)
 
-    update = command.add_parser('update',help='update manual fixes from a issues csv')
-    update.add_argument('-i','--input',help='input issues.csv',required=True)
-    update.add_argument('--force',help='force update',action='store_true')
+    update = command.add_parser('update', help='update manual fixes from a issues csv')
+    update.add_argument('-i', '--input', help='input issues.csv', required=True)
+    update.add_argument('--force', help='force update', action='store_true')
 
-    write = command.add_parser('write',help='write fixed metadata to files')
-    write.add_argument('--force',help='force update',action='store_true')
+    write = command.add_parser('write', help='write fixed metadata to files')
+    write.add_argument('--force', help='force update', action='store_true')
 
     return parser.parse_args()
+
 
 def main(args):
     args = get_parser(args)
@@ -497,18 +510,18 @@ def main(args):
         print(dir(img))
         sys.exit(0)
 
-    filter = {}
+    out_filter = {}
     try:
-        if args.filter != None:
+        if args.filter is not None:
             filter_list = args.filter.split(',')
             for i in filter_list:
                 key = i.split('=')[0]
                 value = ''.join(i.split('=')[1:])
-                filter[key] = value
+                out_filter[key] = value
     except AttributeError:
         pass
 
-    if args.command == 'create' and args.dir != None:
+    if args.command == 'create' and args.dir is not None:
         log.info('Creating Directory Date map for %s' % args.dir)
         if os.path.isfile(args.date_map):
             log.warning('Date DB already exists')
@@ -517,7 +530,7 @@ def main(args):
                 sys.exit(1)
             else:
                 log.warning('Overwriting Date DB')
-        dir_data = DirData.scan(args.dir,args.date_map)
+        dir_data = DirData.scan(args.dir, args.date_map)
         dir_data.safe()
     elif args.command == 'scan':
         if os.path.isfile(args.picture_database):
@@ -528,8 +541,8 @@ def main(args):
             else:
                 log.warning('Overwriting DB')
         log.info('Creating picture database for %s' % args.dir)
-        foto_db = FotoData.scan(args.dir,args.picture_database)
-        foto_db.safe()
+        photo_db = FotoData.scan(args.dir, args.picture_database)
+        photo_db.safe()
     else:
         if not os.path.isfile(args.picture_database):
             log.error('No picture database %s found. Run scan first' % args.picture_database)
@@ -537,35 +550,36 @@ def main(args):
         if not os.path.isfile(args.date_map):
             log.error('No directory data map %s found. Run create first' % args.date_map)
             sys.exit(1)
-        foto_db = FotoData.load(args.dir,args.picture_database)
+        photo_db = FotoData.load(args.dir, args.picture_database)
         dir_db = DirData.load(args.date_map)
 
         if args.command == 'list':
-            if args.out != None:
-                foto_db.csvwrite(args.out,**filter)
+            if args.out is not None:
+                photo_db.csv_write(args.out, **out_filter)
             else:
-                print('%s' % foto_db)
+                print('%s' % photo_db)
         if args.command == 'issues':
-            p = foto_db.problems()
-            if args.out == None:
+            p = photo_db.problems()
+            if args.out is None:
                 print('%s' % p)
             else:
-                p.csvwrite(args.out,**filter)
+                p.csv_write(args.out, **out_filter)
         if args.command == 'remove':
-            foto_db.remove(args.name)
-            foto_db.safe()
+            photo_db.remove(args.name)
+            photo_db.safe()
         if args.command == 'map':
-            foto_db.dir_date_map(dir_db)
-            foto_db.safe()
+            photo_db.dir_date_map(dir_db)
+            photo_db.safe()
         if args.command == 'fix':
-            foto_db.fix(regex=args.regex)
-            foto_db.safe()
+            photo_db.fix(regex=args.regex)
+            photo_db.safe()
         if args.command == 'update':
-            foto_db.update_from_file(args.input,force=args.force)
-            foto_db.safe()
+            photo_db.update_from_file(args.input, force=args.force)
+            photo_db.safe()
         if args.command == 'write':
-            problems = foto_db.problems()
-            PictureUpdater(problems,dir=args.dir).write_fixes(force=args.force)
+            problems = photo_db.problems()
+            PictureUpdater(problems, path=str(args.dir)).write_fixes(force=args.force)
+
 
 if '__main__' in __name__:
     log.info('START RUN')
