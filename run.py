@@ -287,6 +287,8 @@ class PhotoData(object):
                 db[relative_filename] = data
                 read_count = read_count + 1
             elif not db[relative_filename]['ok']:
+                if db[relative_filename]['issue'] == 'NO PICTURE FILE':
+                    continue
                 data = PhotoData.process_file(f, base_path=path)
                 db[relative_filename] = data
                 read_count = read_count + 1
