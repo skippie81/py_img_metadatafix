@@ -11,6 +11,7 @@ import json
 import csv
 import re
 import math
+import plum
 import warnings
 
 log = logging.getLogger('EXIF Modifier')
@@ -687,7 +688,12 @@ class PictureUpdater(object):
             if os.path.isfile(filename):
                 file_counter = file_counter + 1
                 with open(filename, 'rb') as f:
-                    img = exif.Image(f)
+                    try:
+                        img = exif.Image(f)
+                    except plum._exceptions.UnpackError as e:
+                        log.error('Error reading currend file %s' % filename)
+                        log.debug('%s' % e)
+                        continue
                     f.close()
                 log.debug('updating exif to date %s' % date)
                 if not img.has_exif:
