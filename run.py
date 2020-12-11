@@ -23,6 +23,7 @@ log.addHandler(fh)
 
 EXIF_DATETIME_FORMAT = '%Y:%m:%d %H:%M:%S'
 IMAGE_EXTENTIONS = ['jpg','jpeg']
+IMG_FILENAME_REGEX = 'IMG-([0-9]{4})([0-9]{2})([0-9]{2})-WA.*\.jpg$'
 
 class DirData(object):
     @classmethod
@@ -218,8 +219,8 @@ class FotoData(object):
                             break
                         dirkey = os.path.dirname(dirkey)
 
-    def fix(self):
-        r = re.compile('IMG-([0-9]{4})([0-9]{2})([0-9]{2})-WA.*\.jpg$')
+    def fix(self,regex=IMG_FILENAME_REGEX):
+        r = re.compile(regex)
         for k in self.db.keys():
             if not self.db[k]['ok']:
                 if self.db[k]['issue'] == 'NO DATETIME IN EXIF':
@@ -238,6 +239,11 @@ class FotoData(object):
                                 log.debug('regex matched')
                                 groups = r.match(os.path.basename(k)).groups()
                                 date = '%s:%s:%s 12:00:00' % (groups[0],groups[1],groups[2])
+                                try:
+                                    datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+                                except ValueError as e:
+                                    log.error('regex match dit not have valid datetime for %s' % date)
+                                    continue
                                 log.debug('date out of regex is %s' % date)
                                 issue = 'DATETIME FOUND IN FILENAME'
                             else:
@@ -251,10 +257,15 @@ class FotoData(object):
                         log.debug('regex matched')
                         groups = r.match(os.path.basename(k)).groups()
                         date = '%s:%s:%s 12:00:00' % (groups[0],groups[1],groups[2])
-                        log.debug('date out of regex is %s' % date)
-                        issue = 'DATETIME FOUND IN FILENAME'
-                        self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
-                        self.db[k]['issue'] = issue
+                        try:
+                            datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+                            log.debug('date out of regex is %s' % date)
+                            issue = 'DATETIME FOUND IN FILENAME'
+                            self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
+                            self.db[k]['issue'] = issue
+                        except ValueError as e:
+                            log.error('regex match dit not have valid datetime for %s' % date)
+                            continue
 
     def csvwrite(self,filename,**kwargs):
         with open(filename,'w') as csvfile:
@@ -408,17 +419,22 @@ class PictureUpdater(object):
                 log.debug('not touching %s as no datetime in db' % filename)
                 continue
             filename = os.path.join(self.dir,picture['filename'])
-            datetime = picture['datetime']
+            date = picture['datetime']
+            try:
+                datetime.datetime.strftime(date,EXIF_DATETIME_FORMAT)
+            except ValueError as e:
+                log.error('Datetime % is not a valide datetime to format %s' % (date,EXIF_DATETIME_FORMAT))
+                sys.exit(1)
             log.debug('Updating %s' % filename)
 
             if os.path.isfile(filename):
                 with open(filename,'rb') as f:
                     img = exif.Image(f)
                     f.close()
-                log.debug('updating exif to date %s' % datetime)
-                img.datetime = datetime
-                img.datetime_original = datetime
-                img.datetime_digitized = datetime
+                log.debug('updating exif to date %s' % date)
+                img.datetime = date
+                img.datetime_original = date
+                img.datetime_digitized = date
                 if force:
                     log.info('writing file %s' % filename)
                     with open(filename,'wb') as new_file:
@@ -458,6 +474,7 @@ def get_parser(args):
     info.add_argument('-f','--file',help='filename',required=True)
 
     fix = command.add_parser('fix',help='run fixes')
+    fix.add_argument('--regex',help='set regex to find dates in files',default=IMG_FILENAME_REGEX)
 
     update = command.add_parser('update',help='update manual fixes from a issues csv')
     update.add_argument('-i','--input',help='input issues.csv',required=True)
@@ -541,7 +558,7 @@ def main(args):
             foto_db.dir_date_map(dir_db)
             foto_db.safe()
         if args.command == 'fix':
-            foto_db.fix()
+            foto_db.fix(regex=args.regex)
             foto_db.safe()
         if args.command == 'update':
             foto_db.update_from_file(args.input,force=args.force)
