@@ -444,7 +444,7 @@ class PictureUpdater(object):
             filename = os.path.join(self.dir,picture['filename'])
             date = picture['datetime']
             try:
-                datetime.datetime.strftime(date, EXIF_DATETIME_FORMAT)
+                datetime.datetime.strptime(date, EXIF_DATETIME_FORMAT)
             except ValueError as e:
                 log.error('Datetime % is not a valid datetime to format %s' % (date, EXIF_DATETIME_FORMAT))
                 sys.exit(1)
