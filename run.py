@@ -414,6 +414,7 @@ class PhotoData(object):
                     log.debug('Updating picture file %s metadata to same as dir data %s' % (k, date))
                     self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
                     self.db[k]['issue'] = 'METADATA MATCHED TO FILES IN SAME DIR'
+                    self.db[k]['has_exif'] = True
                 else:
                     log.debug('%s not found in directory map' % dir_key)
                     dir_key = os.path.dirname(dir_key)
@@ -426,6 +427,7 @@ class PhotoData(object):
                             self.db[k]['exif'] = {'datetime': date, 'datetime_original': date,
                                                   'datetime_digitized': date}
                             self.db[k]['issue'] = 'METADATA MATCHED TO FILE IN HIGHER DIR %s' % dir_key
+                            self.db[k]['has_exif'] = True
                             break
                         dir_key = os.path.dirname(dir_key)
         progress.finish()
