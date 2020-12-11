@@ -646,6 +646,9 @@ class PhotoData(object):
             pass
         return item
 
+    def __len__(self):
+        return len(list(self.db.keys()))
+
 
 class PictureUpdater(object):
     def __init__(self, db, path='.'):
@@ -656,10 +659,10 @@ class PictureUpdater(object):
     def write_fixes(self, force=False):
         write_counter = 0
         file_counter = 0
-        progress = PrettyProgress(len(list(self.db.keys())))
+        progress = PrettyProgress(len(self.db))
         if not force:
             log.warning('not really writing files, use --force')
-        log.info('Processing %i files for update' % len(list(self.db.keys)))
+        log.info('Processing %i files for update' % len(self.db))
         for picture in self.db:
             progress.step()
             if self.EXIT.exit:
@@ -684,10 +687,10 @@ class PictureUpdater(object):
                     f.close()
                 log.debug('updating exif to date %s' % date)
                 if not img.has_exif:
-                    log.warning('Original file has no exif need to create')
+                    log.warning('\nOriginal file %s has no exif need to create' % filename)
                 else:
                     if 'datetime' not in list(dir(img)):
-                        log.warning('Original file has exif without datetime field')
+                        log.warning('\nOriginal file %s has exif without datetime field' % filename)
                         img.set('datetime', date)
                     else:
                         log.debug('Original file has exif')
