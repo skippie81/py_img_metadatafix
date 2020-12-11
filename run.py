@@ -511,9 +511,19 @@ class PictureUpdater(object):
                     img = exif.Image(f)
                     f.close()
                 log.debug('updating exif to date %s' % date)
+                if not img.has_exif:
+                    log.warning('Original file has no exif need to create')
+                else:
+                    if 'datetime' not in list(dir(img)):
+                        log.warning('Original file has exif without datetime field')
+                        img.set('datetime',date)
+                    else:
+                        log.debug('Original file has exif')
                 img.datetime = date
-                img.datetime_original = date
-                img.datetime_digitized = date
+                if 'datetime_original' in list(dir(img)):
+                    img.datetime_original = date
+                if 'datetime_digitized' in list(dir(img)):
+                    img.datetime_digitized = date
                 file_counter = file_counter + 1
                 if force:
                     log.info('writing file %s' % filename)
