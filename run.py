@@ -516,7 +516,7 @@ class PictureUpdater(object):
                 else:
                     if 'datetime' not in list(dir(img)):
                         log.warning('Original file has exif without datetime field')
-                        img.set('datetime',date)
+                        img.set('datetime', date)
                     else:
                         log.debug('Original file has exif')
                 img.datetime = date
