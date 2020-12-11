@@ -170,8 +170,8 @@ class PhotoData(object):
             r = re.compile('^%s' % os.path.join(path, ''))
             relative_filename = r.sub('', f)
             if relative_filename not in db.keys():
-                data = PhotoData.process_file(relative_filename)
-                db[data['filename']] = data
+                data = PhotoData.process_file(f)
+                db[relative_filename] = data
             else:
                 log.debug('%s already in db' % relative_filename)
             if clean_exit.exit:
@@ -226,10 +226,26 @@ class PhotoData(object):
             json.dump(self.db, f, indent=4)
             f.close()
 
-    def remove(self, name):
+    def remove(self, filename=None, regex=None):
+        r = None
+        if regex is not None:
+            log.debug('creating regex for %s' % regex)
+            r = re.compile(regex)
+
+        file_count = 0
         for k in list(self.db.keys()):
-            if os.path.basename(k) == name:
+            remove = False
+            if filename is not None:
+                if os.path.basename(k) == filename:
+                    remove = True
+            elif r is not None:
+                if r.match(k):
+                    remove = True
+            if remove:
+                log.debug('removing %s' % k)
                 self.db.pop(k)
+                file_count = file_count + 1
+        log.info('Removed %s files from Picture Database' % file_count)
 
     def problems(self):
         db = {}
@@ -414,6 +430,18 @@ class PhotoData(object):
                     except KeyError as e:
                         log.warning('Entry %s not found in picture database' % f)
 
+    def add(self, filename,force=False):
+        r = re.compile('^%s' % os.path.join(self.path, ''))
+        if r.match(filename):
+            filename = r.sub('',filename)
+        if filename in self.db.keys():
+            if not force:
+                log.warning('%s already in DB use --force to overwrite' % filename)
+            else:
+                data = PhotoData.process_file(os.path.join(self.path,filename))
+                log.info('adding %s to DB' % filename)
+                self.db[filename] = data
+
     def __str__(self):
         out = '%-40s%-6s%-20s%-6s%-30s\n' % ('FILENAME', 'EXIF', 'DATETIME', 'OK', 'ISSUE')
         out += '\n'
@@ -513,7 +541,13 @@ def get_parser(args):
     issues.add_argument('--filter', help='filter output with field=value,field2=value2,...')
 
     remove = command.add_parser('remove', help='remove file(s) from Picture Database')
-    remove.add_argument('-n', '--name', help='filename',required=True)
+    selector = remove.add_mutually_exclusive_group(required=False)
+    selector.add_argument('-n', '--name', help='filename selector')
+    selector.add_argument('-r','--regex', help='regex selector')
+
+    add = command.add_parser('add', help='add single file to Picture Database')
+    add.add_argument('-n','--name',help='filename',required=True)
+    add.add_argument('--force',help='force db update',action='store_true')
 
     create = command.add_parser('create', help='create data map')
     create.add_argument('--rebuild', help='rebuild existing db', action='store_true')
@@ -604,7 +638,7 @@ def main(args):
             else:
                 p.csv_write(args.out, **out_filter)
         if args.command == 'remove':
-            photo_db.remove(args.name)
+            photo_db.remove(filename=args.name, regex=args.regex)
             photo_db.safe()
         if args.command == 'map':
             photo_db.dir_date_map(dir_db)
@@ -618,7 +652,9 @@ def main(args):
         if args.command == 'write':
             problems = photo_db.problems()
             PictureUpdater(problems, path=str(args.dir)).write_fixes(force=args.force)
-
+        if args.command == 'add':
+            photo_db.add(args.name,force=args.force)
+            photo_db.safe()
 
 if '__main__' in __name__:
     log.info('START RUN')
