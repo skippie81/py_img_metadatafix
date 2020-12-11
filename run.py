@@ -39,8 +39,16 @@ class CleanExit(object):
 
 class DirData(object):
     @classmethod
-    def scan(cls, path, db_file):
+    def scan(cls, path, db_file, rebuild=False):
+        clean_exit = CleanExit()
         dir_list = {}
+        if os.path.isfile(db_file):
+            if not rebuild:
+                log.info('Updating current Date Map db %s' % db_file)
+                dir_list = DirData.load(db_file).db
+            else:
+                log.warning('Overwriting current Date Map db %s' % db_file)
+
         file_list = []
         for root, dirs, files in os.walk(path):
             log.debug('root: %s' % root)
@@ -55,8 +63,12 @@ class DirData(object):
             if dir_key not in dir_list.keys():
                 data = PhotoData.process_file(file)
                 if data['ok']:
-                    log.debug('found dir %s with date %s' % (dir_key, data['exif']['datetime']))
+                    log.info('found dir %s with date %s' % (dir_key, data['exif']['datetime']))
                     dir_list[dir_key] = data['exif']['datetime']
+            else:
+                log.debug('%s already in dir date db' % dir_key)
+            if clean_exit.exit:
+                break
 
         return DirData(dir_list, db_file)
 
@@ -139,17 +151,32 @@ class PhotoData(object):
         return data
 
     @classmethod
-    def scan(cls, path, db_file='db.json'):
+    def scan(cls, path, db_file='db.json', rebuild=False):
+        clean_exit = CleanExit()
         file_list = []
         for root, dirs, files in os.walk(path):
             for file in files:
                 file_list.append(os.path.join(root, file))
-        photo_data = []
-        for f in file_list:
-            photo_data.append(PhotoData.process_file(f))
+
         db = {}
-        for f in photo_data:
-            db[f['filename']] = f
+        if os.path.isfile(db_file):
+            if not rebuild:
+                log.info('Updating current Picture db %s' % db_file)
+                db = PhotoData.load(path,db_file).db
+            else:
+                log.warning('Overwriting current Picture db %s' % db_file)
+
+        for f in file_list:
+            r = re.compile('^%s' % os.path.join(path, ''))
+            relative_filename = r.sub('', f)
+            if relative_filename not in db.keys():
+                data = PhotoData.process_file(relative_filename)
+                db[data['filename']] = data
+            else:
+                log.debug('%s already in db' % relative_filename)
+            if clean_exit.exit:
+                break
+
         return PhotoData(path, db, db_file=db_file)
 
     @classmethod
@@ -428,11 +455,10 @@ class PhotoData(object):
 
 
 class PictureUpdater(object):
-    EXIT = CleanExit()
-
     def __init__(self, db, path='.'):
         self.db = db
         self.dir = path
+        self.EXIT = CleanExit()
 
     def write_fixes(self, force=False):
         if not force:
@@ -475,7 +501,6 @@ def get_parser(args):
     parser.add_argument('--date-map', help='dir date map', default='dirlist.json')
     parser.add_argument('--picture-database', help='picture db file', default='db.json')
     parser.add_argument('-d','--dir', help='process entire dir', required=True)
-    parser.add_argument('--force', help='force file overwrite', action='store_true')
 
     command = parser.add_subparsers(dest='command', metavar='command', required=True)
 
@@ -491,8 +516,12 @@ def get_parser(args):
     remove.add_argument('-n', '--name', help='filename',required=True)
 
     create = command.add_parser('create', help='create data map')
+    create.add_argument('--rebuild', help='rebuild existing db', action='store_true')
+    create.add_argument('--force', help='force file overwrite', action='store_true')
 
     scan = command.add_parser('scan', help='create picture database')
+    scan.add_argument('--rebuild', help='rebuild existing db', action='store_true')
+    scan.add_argument('--force', help='force file overwrite', action='store_true')
 
     mapper = command.add_parser('map', help='map directory date db over file')
 
@@ -542,9 +571,7 @@ def main(args):
             if not args.force:
                 log.error('Not overwriting (use --force)')
                 sys.exit(1)
-            else:
-                log.warning('Overwriting Date DB')
-        dir_data = DirData.scan(args.dir, args.date_map)
+        dir_data = DirData.scan(args.dir, args.date_map, rebuild=args.rebuild)
         dir_data.safe()
     elif args.command == 'scan':
         if os.path.isfile(args.picture_database):
@@ -552,10 +579,8 @@ def main(args):
             if not args.force:
                 log.error('Not overwriting (use --force)')
                 sys.exit(1)
-            else:
-                log.warning('Overwriting DB')
         log.info('Creating picture database for %s' % args.dir)
-        photo_db = PhotoData.scan(args.dir, args.picture_database)
+        photo_db = PhotoData.scan(args.dir, args.picture_database, rebuild=args.rebuild)
         photo_db.safe()
     else:
         if not os.path.isfile(args.picture_database):
