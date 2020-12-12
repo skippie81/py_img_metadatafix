@@ -56,6 +56,10 @@ class PrettyProgress(object):
         self.steps = steps
         self.bar = ''
 
+    def reset(self):
+        self.done = 0
+        self.rotor_index = 0
+
     def progress_count(self):
         return self.done
 
@@ -300,12 +304,18 @@ class PhotoData(object):
         self.path = path
         self.db = db
         self.db_file = db_file
+        self.can_save = True
+        self.clean_exit = CleanExit()
+        self.progress = PrettyProgress(len(list(self.db.keys())))
 
     def save(self):
-        log.info('saving %s' % self.db_file)
-        with open(self.db_file, 'w') as f:
-            json.dump(self.db, f, indent=4)
-            f.close()
+        if self.can_save:
+            log.info('saving %s' % self.db_file)
+            with open(self.db_file, 'w') as f:
+                json.dump(self.db, f, indent=4)
+                f.close()
+        else:
+            log.warning('Not saving as CTRL+C was pressed during processing')
 
     def remove(self, filename=None, regex=None):
         r = None
@@ -314,7 +324,14 @@ class PhotoData(object):
             r = re.compile(regex)
 
         file_count = 0
+        log.info('Chekcing %i db enties for removal' % len(list(self.db.keys())))
+        self.progress.reset()
         for k in list(self.db.keys()):
+            if self.clean_exit.exit:
+                self.can_save = False
+                break
+
+            self.progress.step()
             remove = False
             if filename is not None:
                 if os.path.basename(k) == filename:
@@ -326,21 +343,34 @@ class PhotoData(object):
                 log.debug('removing %s' % k)
                 self.db.pop(k)
                 file_count = file_count + 1
+
+        self.progress.finish()
+        log.info('Processed %i entries' % self.progress.progress_count())
         log.info('Removed %s files from Picture Database' % file_count)
 
     def problems(self):
         db = {}
+        log.info('Checkig %i entries for problematic timestamps' % len(list(self.db.keys())))
+        self.progress.reset()
         for k in self.db.keys():
+            if self.clean_exit.exit:
+                break
+            self.progress.step()
             if not self.db[k]['ok']:
                 db[k] = self.db[k]
+        self.progress.finish()
+        log.info('Checked %i enties' % self.progress.progress_count())
         return PhotoData(self.path, db, '%s.problems' % self.db_file)
 
     def dir_date_map(self):
         date_db = DirData.create_from_photo_db(self.db)
         log.info('Trying to fix %i DB entries with dir map' % len(list(self.db.keys())))
-        progress = PrettyProgress(len(list(self.db.keys())))
+        self.progress.reset()
         for k in self.db.keys():
-            progress.step()
+            if self.clean_exit.exit:
+                break
+
+            self.progress.step()
             if not self.db[k]['ok'] and self.db[k]['issue'] in ['NO METADATA',
                                                                 'NO DATETIME IN EXIF',
                                                                 'ERROR READING EXIF',
@@ -368,15 +398,19 @@ class PhotoData(object):
                             self.db[k]['has_exif'] = True
                             break
                         dir_key = os.path.dirname(dir_key)
-        progress.finish()
-        log.info('Processed %i DB entries' % progress.progress_count())
+        self.progress.finish()
+        log.info('Processed %i DB entries' % self.progress.progress_count())
 
     def fix(self, regex=IMG_FILENAME_REGEX):
         r = re.compile(regex)
         log.info('Trying to fix %i DB entries' % len(list(self.db.keys())))
-        progress = PrettyProgress(len(list(self.db.keys())))
+        fix_count = 0
+        self.progress.reset()
         for k in self.db.keys():
-            progress.step()
+            if self.clean_exit.exit:
+                self.can_save = False
+                break
+            self.progress.step()
             if not self.db[k]['ok']:
                 if self.db[k]['issue'] == 'NO DATETIME IN EXIF':
                     log.debug('checking %s for other metadata' % k)
@@ -406,6 +440,7 @@ class PhotoData(object):
                     log.debug('updating %s datetime to %s' % (k, date))
                     self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
                     self.db[k]['issue'] = issue
+                    fix_count = fix_count + 1
                 elif self.db[k]['issue'] == 'NO METADATA':
                     log.debug('no metadata, matching file %s for regex' % k)
                     if r.match(os.path.basename(k)):
@@ -419,6 +454,7 @@ class PhotoData(object):
                             self.db[k]['exif'] = {'datetime': date, 'datetime_original': date,
                                                   'datetime_digitized': date}
                             self.db[k]['issue'] = issue
+                            fix_count = fix_count + 1
                         except ValueError:
                             log.error('regex match dit not have valid datetime for %s' % date)
                             continue
@@ -431,15 +467,26 @@ class PhotoData(object):
                     except ValueError:
                         log.debug('%s has invalid datetime, copying from datetime entry' % entry)
                         self.db[k]['exif'][entry] = self.db[k]['exif']['datetime']
+                        fix_count = fix_count + 1
 
-        progress.finish()
-        log.info('Processed %i DB entries' % progress.progress_count())
+        self.progress.finish()
+        log.info('Processed %i DB entries' % self.progress.progress_count())
+        log.info('Was able to fix %i entries' % fix_count)
 
     def csv_write(self, filename, **kwargs):
+        log.info('writing csv files %s' % filename)
+        self.progress.reset()
         with open(filename, 'w') as csv_file:
             csv_writer = csv.DictWriter(csv_file, fieldnames=self.CSV_FIELDNAMES)
             csv_writer.writeheader()
+            log.info('Writing %i items to file with %i filters' % (len(list(self.db.keys())),len(list(kwargs.keys()))))
+            match_counter = 0
             for i in self:
+                if self.clean_exit.exit:
+                    csv_file.close()
+                    break
+                self.progress.step()
+
                 i['can_fix'] = None
                 if not i['ok']:
                     if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA',
@@ -477,15 +524,31 @@ class PhotoData(object):
                         sys.exit(1)
 
                 if do_write:
+                    match_counter = match_counter + 1
                     csv_writer.writerow(i)
 
             csv_file.close()
+            self.progress.finish()
+            log.info('Processed %i entries' % self.progress.progress_count())
+            log.info('Written %i entries to file' % match_counter)
 
     def update_from_file(self, filename, field='issue', value='MANUAL FIX', force=False):
         with open(filename, 'r') as csv_file:
             reader = csv.DictReader(csv_file, fieldnames=self.CSV_FIELDNAMES)
+            row_count = sum(1 for row in reader)
+            csv_file.seek(0)
+
+            progress = PrettyProgress(row_count)
+            need_to_fix = 0
+            applied_fix = 0
+            log.info('Processing %i entries in csv file' % row_count)
             for i in reader:
                 if i[field] == value:
+                    if self.clean_exit.exit:
+                        self.can_save = False
+                        break
+                    progress.step()
+
                     f = i['filename']
                     log.debug('Item marked for manual update: %s' % f)
                     try:
@@ -505,6 +568,7 @@ class PhotoData(object):
                                     log.debug('current exif: %s' % self.db[f]['exif'])
 
                                 if self.db[f]['exif']['datetime'] is None or force:
+                                    need_to_fix = need_to_fix + 1
                                     log.debug('loading datetime for manual update file')
                                     date = i['datetime']
                                     log.debug('found %s' % date)
@@ -516,27 +580,34 @@ class PhotoData(object):
                                         date_digitized = i['datetime_digitized']
                                     else:
                                         date_digitized = date
-                                    log.info('updating %s to datetime %s' % (f, date))
+                                    log.debug('updating %s to datetime %s' % (f, date))
                                     try:
                                         self.db[f]['exif']['datetime'] = date
                                         self.db[f]['exif']['datetime_original'] = date_original
                                         self.db[f]['exif']['datetime_digitized'] = date_digitized
                                         self.db[f]['issue'] = 'MANUAL FIX'
                                         log.debug('update ok')
+                                        applied_fix = applied_fix + 1
                                     except KeyError as e:
                                         log.debug('no exif with key %s' % e)
                                         sys.exit(1)
                                 else:
                                     log.debug('there is data in exif')
-                                    log.warning('not updating entry %s as there is already a date set %s.'
+                                    log.debug('not updating entry %s as there is already a date set %s.'
                                                 'use --force to overwrite' % (f, self.db[f]['exif']['datetime']))
                             else:
-                                log.info('a fix was already done for %s use --force to overwrite' % f)
+                                log.debug('a fix was already done for %s use --force to overwrite' % f)
                         except KeyError as e:
                             log.error('something wend wrong: %s' % e)
                             sys.exit(1)
                     except KeyError:
-                        log.warning('Entry %s not found in picture database' % f)
+                        log.debug('Entry %s not found in picture database' % f)
+            progress.finish()
+            log.info('Processed %i entiries' % progress.progress_count())
+            log.info('%i entries in csv had a fix field' % need_to_fix)
+            log.info('%i fixes where applied' % applied_fix)
+            if need_to_fix != applied_fix:
+                log.warning('Used --force to applie alle enties even if db already has a timestamp')
 
     def add(self, filename, force=False):
         r = re.compile('^%s' % os.path.join(self.path, ''))
@@ -682,7 +753,7 @@ def get_parser():
     issues.add_argument('--filter', help='filter output with field=value,field2=value2,...')
 
     remove = command.add_parser('remove', help='remove file(s) from Picture Database')
-    selector = remove.add_mutually_exclusive_group(required=False)
+    selector = remove.add_mutually_exclusive_group(required=True)
     selector.add_argument('-n', '--name', help='filename selector')
     selector.add_argument('-r', '--regex', help='regex selector')
 
