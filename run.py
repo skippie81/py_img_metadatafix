@@ -570,6 +570,7 @@ class PhotoData(object):
                                     log.debug('no exif for db entry yet creating')
                                     self.db[f]['exif'] = {'datetime': None, 'datetime_original': None,
                                                           'datetime_digitized': None}
+                                    self.db[f]['has_exif'] = True
                                 elif 'datetime' not in self.db[f]['exif'].keys():
                                     log.debug('no datetime key in current exif creating')
                                     self.db[f]['exif'] = {'datetime': None, 'datetime_original': None,
@@ -596,6 +597,7 @@ class PhotoData(object):
                                         self.db[f]['exif']['datetime_original'] = date_original
                                         self.db[f]['exif']['datetime_digitized'] = date_digitized
                                         self.db[f]['issue'] = 'MANUAL FIX'
+                                        self.db[f]['has_exif'] = True
                                         log.debug('update ok')
                                         applied_fix = applied_fix + 1
                                     except KeyError as e:
@@ -718,10 +720,10 @@ class PictureUpdater(object):
                     f.close()
                 log.debug('updating exif to date %s' % date)
                 if not img.has_exif:
-                    log.warning('\nOriginal file %s has no exif need to create' % filename)
+                    log.debug('\nOriginal file %s has no exif need to create' % filename)
                 else:
                     if 'datetime' not in list(dir(img)):
-                        log.warning('\nOriginal file %s has exif without datetime field' % filename)
+                        log.debug('\nOriginal file %s has exif without datetime field' % filename)
                         img.set('datetime', date)
                     else:
                         log.debug('Original file has exif')
@@ -734,7 +736,7 @@ class PictureUpdater(object):
                 if 'datetime_digitized' in list(dir(img)):
                     img.datetime_digitized = date
                 if force:
-                    log.info('writing file %s' % filename)
+                    log.debug('writing file %s' % filename)
                     with open(filename, 'wb') as new_file:
                         new_file.write(img.get_file())
                         new_file.close()
