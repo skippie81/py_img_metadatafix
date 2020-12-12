@@ -347,6 +347,8 @@ class PhotoData(object):
         self.progress.finish()
         log.info('Processed %i entries' % self.progress.progress_count())
         log.info('Removed %s files from Picture Database' % file_count)
+        if file_count > 0:
+            self.save()
 
     def problems(self):
         db = {}
@@ -366,6 +368,7 @@ class PhotoData(object):
         date_db = DirData.create_from_photo_db(self.db)
         log.info('Trying to fix %i DB entries with dir map' % len(list(self.db.keys())))
         self.progress.reset()
+        fix_count = 0
         for k in self.db.keys():
             if self.clean_exit.exit:
                 break
@@ -383,6 +386,7 @@ class PhotoData(object):
                     self.db[k]['exif'] = {'datetime': date, 'datetime_original': date, 'datetime_digitized': date}
                     self.db[k]['issue'] = 'METADATA MATCHED TO FILES IN SAME DIR'
                     self.db[k]['has_exif'] = True
+                    fix_count = fix_count + 1
                 else:
                     log.debug('%s not found in directory map' % dir_key)
                     dir_key = os.path.dirname(dir_key)
@@ -396,10 +400,14 @@ class PhotoData(object):
                                                   'datetime_digitized': date}
                             self.db[k]['issue'] = 'METADATA MATCHED TO FILE IN HIGHER DIR %s' % dir_key
                             self.db[k]['has_exif'] = True
+                            fix_count = fix_count + 1
                             break
                         dir_key = os.path.dirname(dir_key)
         self.progress.finish()
         log.info('Processed %i DB entries' % self.progress.progress_count())
+        log.info('Was able to fix %i entries in DB' % fix_count)
+        if fix_count > 0:
+            self.save()
 
     def fix(self, regex=IMG_FILENAME_REGEX):
         r = re.compile(regex)
@@ -472,6 +480,8 @@ class PhotoData(object):
         self.progress.finish()
         log.info('Processed %i DB entries' % self.progress.progress_count())
         log.info('Was able to fix %i entries' % fix_count)
+        if fix_count > 0:
+            self.save()
 
     def csv_write(self, filename, **kwargs):
         log.info('writing csv files %s' % filename)
@@ -608,6 +618,8 @@ class PhotoData(object):
             log.info('%i fixes where applied' % applied_fix)
             if need_to_fix != applied_fix:
                 log.warning('Used --force to applie alle enties even if db already has a timestamp')
+            if applied_fix > 0:
+                self.save()
 
     def add(self, filename, force=False):
         r = re.compile('^%s' % os.path.join(self.path, ''))
@@ -834,22 +846,17 @@ def main():
                 p.csv_write(args.out, **out_filter)
         if args.command == 'remove':
             photo_db.remove(filename=args.name, regex=args.regex)
-            photo_db.save()
         if args.command == 'map':
             photo_db.dir_date_map()
-            photo_db.save()
         if args.command == 'fix':
             photo_db.fix(regex=args.regex)
-            photo_db.save()
         if args.command == 'update':
             photo_db.update_from_file(args.input, force=args.force)
-            photo_db.save()
         if args.command == 'write':
             problems = photo_db.problems()
             PictureUpdater(problems, path=str(args.dir)).write_fixes(force=args.force)
         if args.command == 'add':
             photo_db.add(args.name, force=args.force)
-            photo_db.save()
 
 
 if '__main__' in __name__:
