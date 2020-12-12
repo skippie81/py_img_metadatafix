@@ -102,89 +102,32 @@ class PrettyProgress(object):
 
 class DirData(object):
     @classmethod
-    def check_dir(cls, path, file_list):
-        for f in file_list:
-            if f.startswith(path):
-                data = PhotoData.process_file(f)
-                if data['ok']:
-                    return data['exif']['datetime']
-        return None
-
-    @classmethod
-    def scan(cls, path, db_file, rebuild=False):
-        clean_exit = CleanExit()
+    def create_from_photo_db(cls, photo_db):
         dir_list = {}
-        if os.path.isfile(db_file):
-            if not rebuild:
-                log.info('Updating current Date Map db %s' % db_file)
-                dir_list = DirData.load(db_file).db
-                log.info('Current Date Map db holds %i directory items' % len(list(dir_list.keys())))
-            else:
-                log.warning('Overwriting current Date Map db %s' % db_file)
+        progress = PrettyProgress(len(list(photo_db.keys())))
 
-        file_list = []
-        log.info('Listing all files in %s' % path)
-        for root, dirs, files in os.walk(path):
-            log.debug('root: %s' % root)
-            log.debug('dirs: %s' % dirs)
-            log.debug('files: %s' % files)
-            for file in files:
-                file_list.append(os.path.join(root, file))
-
-        r = re.compile('^%s' % os.path.join(path, ''))
-        progress = PrettyProgress(len(file_list))
-        dir_read = 0
-        log.info('Indexing %i files in %s' % (len(file_list), path))
-        for file in file_list:
+        log.info('looking foor good timestamps in all directories')
+        log.info('Indexing %i files' % len(list(photo_db.keys())))
+        for file in photo_db.keys():
             progress.step()
-            relative_filename = r.sub('', file)
-            dir_key = os.path.dirname(relative_filename)
+            dir_key = os.path.dirname(file)
             if dir_key not in dir_list.keys():
-                dir_read = dir_read + 1
-                timestamp = DirData.check_dir(os.path.join(path, relative_filename), file_list)
-                if timestamp is not None:
-                    log.debug('found dir %s with date %s' % (dir_key, timestamp))
-                    dir_list[dir_key] = timestamp
-            else:
                 try:
-                    date_check = datetime.datetime.strptime(dir_list[dir_key], EXIF_DATETIME_FORMAT)
-                    if date_check.year == 0:
-                        raise ValueError()
-                    else:
-                        log.debug('%s already in dir date db' % dir_key)
-                except ValueError:
-                    dir_read = dir_read + 1
-                    timestamp = DirData.check_dir(os.path.join(path, relative_filename), file_list)
-                    if timestamp is not None:
+                    if photo_db[file]['has_exif'] and photo_db[file]['ok']:
+                        timestamp = photo_db[file]['exif']['datetime']
                         log.debug('found dir %s with date %s' % (dir_key, timestamp))
                         dir_list[dir_key] = timestamp
-            if clean_exit.exit:
-                break
+                except KeyError:
+                    continue
         progress.finish()
 
         log.info('Processed %i files' % progress.progress_count())
-        log.info('Needed to check %i directories' % dir_read)
         log.info('Stored %i directories in the database' % len(list(dir_list.keys())))
-        return DirData(dir_list, db_file)
+        return DirData(dir_list)
 
-    @classmethod
-    def load(cls, db_file):
-        try:
-            with open(db_file, 'r') as f:
-                db = json.load(f)
-                f.close()
-        except Exception as e:
-            raise e
-        return DirData(db, db_file)
+    def __init__(self, photo_db):
+        self.db = {}
 
-    def __init__(self, db, db_file='dir_list.json'):
-        self.db = db
-        self.db_file = db_file
-
-    def save(self):
-        with open(self.db_file, 'w') as db_file:
-            json.dump(self.db, db_file, indent=4)
-            db_file.close()
 
     def get(self, dir_key):
         try:
@@ -392,14 +335,8 @@ class PhotoData(object):
                 db[k] = self.db[k]
         return PhotoData(self.path, db, '%s.problems' % self.db_file)
 
-    def find_ok_in_dir(self, path):
-        for k in self.db.keys():
-            if os.path.dirname(k) == path:
-                if self.db[k]['ok']:
-                    return self.db[k]['exif']['datetime']
-        return None
-
-    def dir_date_map(self, date_db):
+    def dir_date_map(self):
+        date_db = DirData.create_from_photo_db(self.db)
         log.info('Trying to fix %i DB entries with dir map' % len(list(self.db.keys())))
         progress = PrettyProgress(len(list(self.db.keys())))
         for k in self.db.keys():
@@ -731,7 +668,6 @@ class PictureUpdater(object):
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbose', help='debug output', action='store_true')
-    parser.add_argument('--date-map', help='dir date map', default='dir_list.json')
     parser.add_argument('--picture-database', help='picture db file', default='db.json')
     parser.add_argument('-d', '--dir', help='process entire dir', required=True)
 
@@ -753,10 +689,6 @@ def get_parser():
     add = command.add_parser('add', help='add single file to Picture Database')
     add.add_argument('-n', '--name', help='filename', required=True)
     add.add_argument('--force', help='force db update', action='store_true')
-
-    create = command.add_parser('create', help='create data map')
-    create.add_argument('--rebuild', help='rebuild existing db', action='store_true')
-    create.add_argument('--force', help='force file overwrite', action='store_true')
 
     scan = command.add_parser('scan', help='create picture database')
     scan.add_argument('--rebuild', help='rebuild existing db', action='store_true')
@@ -803,16 +735,7 @@ def main():
     except AttributeError:
         pass
 
-    if args.command == 'create' and args.dir is not None:
-        log.info('Creating Directory Date map for %s' % args.dir)
-        if os.path.isfile(args.date_map):
-            log.warning('Date DB already exists')
-            if not args.force:
-                log.error('Not overwriting (use --force)')
-                sys.exit(1)
-        dir_data = DirData.scan(args.dir, args.date_map, rebuild=args.rebuild)
-        dir_data.save()
-    elif args.command == 'scan':
+    if args.command == 'scan':
         if os.path.isfile(args.picture_database):
             log.warning('DB already exists')
             if not args.force:
@@ -825,11 +748,7 @@ def main():
         if not os.path.isfile(args.picture_database):
             log.error('No picture database %s found. Run scan first' % args.picture_database)
             sys.exit(1)
-        if not os.path.isfile(args.date_map):
-            log.error('No directory data map %s found. Run create first' % args.date_map)
-            sys.exit(1)
         photo_db = PhotoData.load(args.dir, args.picture_database)
-        dir_db = DirData.load(args.date_map)
 
         if args.command == 'list':
             if args.out is not None:
@@ -846,7 +765,7 @@ def main():
             photo_db.remove(filename=args.name, regex=args.regex)
             photo_db.save()
         if args.command == 'map':
-            photo_db.dir_date_map(dir_db)
+            photo_db.dir_date_map()
             photo_db.save()
         if args.command == 'fix':
             photo_db.fix(regex=args.regex)
