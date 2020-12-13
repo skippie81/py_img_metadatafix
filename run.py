@@ -258,6 +258,17 @@ class PhotoData(object):
         log.info('Processed %i files' % progress.progress_count())
         log.info('Needed to read EXIF data for %i files' % read_count)
 
+        log.info('Look for removed files in %i db entries' % len(list(db.keys())))
+        rm_count = 0
+        progress = PrettyProgress(len(list(db.keys())))
+        for k in list(db.keys()):
+            progress.step()
+            if os.path.join(path, k) not in file_list:
+                log.debug('removing %s out of db' % k)
+                db.pop(k)
+                rm_count = rm_count + 1
+        progress.finish()
+        log.info('removed %i items out of db that are not on filesystem' % rm_count)
         return PhotoData(path, db, db_file=db_file)
 
     @classmethod
@@ -310,7 +321,7 @@ class PhotoData(object):
 
     def save(self):
         if self.can_save:
-            log.info('saving %s' % self.db_file)
+            log.info('saving %i db entries to %s' % (len(self), self.db_file))
             with open(self.db_file, 'w') as f:
                 json.dump(self.db, f, indent=4)
                 f.close()
