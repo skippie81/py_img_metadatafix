@@ -111,7 +111,7 @@ class DirData(object):
         dir_list = {}
         progress = PrettyProgress(len(list(photo_db.keys())))
 
-        log.info('looking foor good timestamps in all directories')
+        log.info('looking for good timestamps in all directories')
         log.info('Indexing %i files' % len(list(photo_db.keys())))
         for file in photo_db.keys():
             progress.step()
@@ -335,7 +335,7 @@ class PhotoData(object):
             r = re.compile(regex)
 
         file_count = 0
-        log.info('Chekcing %i db enties for removal' % len(list(self.db.keys())))
+        log.info('Checking %i db entries for removal' % len(list(self.db.keys())))
         self.progress.reset()
         for k in list(self.db.keys()):
             if self.clean_exit.exit:
@@ -363,7 +363,7 @@ class PhotoData(object):
 
     def problems(self):
         db = {}
-        log.info('Checkig %i entries for problematic timestamps' % len(list(self.db.keys())))
+        log.info('Checking %i entries for problematic timestamps' % len(list(self.db.keys())))
         self.progress.reset()
         for k in self.db.keys():
             if self.clean_exit.exit:
@@ -372,7 +372,7 @@ class PhotoData(object):
             if not self.db[k]['ok']:
                 db[k] = self.db[k]
         self.progress.finish()
-        log.info('Checked %i enties' % self.progress.progress_count())
+        log.info('Checked %i entries' % self.progress.progress_count())
         return PhotoData(self.path, db, '%s.problems' % self.db_file)
 
     def dir_date_map(self):
@@ -548,7 +548,7 @@ class PhotoData(object):
                 log.debug('Some filters dit not match')
 
         self.progress.finish()
-        log.info('found %i items matchint % i fileters' % (len(list(found.keys())), len(list(kwargs.keys()))))
+        log.info('found %i items matching % i filters' % (len(list(found.keys())), len(list(kwargs.keys()))))
         return PhotoData(self.path, found, db_file='')
 
     def csv_write(self, filename):
@@ -642,11 +642,11 @@ class PhotoData(object):
                     except KeyError:
                         log.debug('Entry %s not found in picture database' % f)
             progress.finish()
-            log.info('Processed %i entiries' % progress.progress_count())
+            log.info('Processed %i entries' % progress.progress_count())
             log.info('%i entries in csv had a fix field' % need_to_fix)
             log.info('%i fixes where applied' % applied_fix)
             if need_to_fix != applied_fix:
-                log.warning('Used --force to applie alle enties even if db already has a timestamp')
+                log.warning('Used --force to apply all entries even if db already has a timestamp')
             if applied_fix > 0:
                 self.save()
 
