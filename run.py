@@ -129,9 +129,8 @@ class DirData(object):
         log.info('Stored %i directories in the database' % len(list(dir_list.keys())))
         return DirData(dir_list)
 
-    def __init__(self, photo_db):
-        self.db = {}
-
+    def __init__(self, db):
+        self.db = db
 
     def get(self, dir_key):
         try:
@@ -483,14 +482,51 @@ class PhotoData(object):
         if fix_count > 0:
             self.save()
 
-    def csv_write(self, filename, **kwargs):
+    def filter(self, **kwargs):
+        log.debug('constructing filters for %s' % kwargs)
+
+        log.info('Filtering %i records with %i filters' % (len(self), len(list(kwargs.keys()))))
+        self.progress.reset()
+        found = {}
+
+        for i in self:
+            self.progress.step()
+            for f in kwargs.keys():
+                match = True
+                k = f
+                if f.endswith('!'):
+                    k = f.replace('!', '')
+                    match = False
+                try:
+                    if isinstance(i[k], bool):
+                        if kwargs[f].lower() in ['y', 'true', 'yes']:
+                            value = True
+                        else:
+                            value = False
+                    else:
+                        if kwargs[f].lower() in ['none', 'null']:
+                            value = None
+                        else:
+                            value = kwargs[f]
+                    if match and i[k] == value:
+                        found[i['filename']] = i
+                    if not match and i[k] != value:
+                        found[i['filename']] = i
+                except KeyError:
+                    if kwargs[f].lower() in ['none', 'null']:
+                        found[i['filename']] = i
+
+        self.progress.finish()
+        log.info('found %i items matchint % i fileters' % (len(list(found.keys())), len(list(kwargs.keys()))))
+        return PhotoData(self.path, found, db_file='')
+
+    def csv_write(self, filename):
         log.info('writing csv files %s' % filename)
         self.progress.reset()
         with open(filename, 'w') as csv_file:
             csv_writer = csv.DictWriter(csv_file, fieldnames=self.CSV_FIELDNAMES)
             csv_writer.writeheader()
-            log.info('Writing %i items to file with %i filters' % (len(list(self.db.keys())),len(list(kwargs.keys()))))
-            match_counter = 0
+            log.info('Writing %i items to file' % len(list(self.db.keys())))
             for i in self:
                 if self.clean_exit.exit:
                     csv_file.close()
@@ -505,47 +541,16 @@ class PhotoData(object):
                     else:
                         i['can_fix'] = False
 
-                do_write = True
-                for key in kwargs:
-                    match = True
-                    s_key = key
-                    if key.endswith('!'):
-                        match = False
-                        s_key = key.replace('!', '')
-
-                    try:
-                        if isinstance(i[s_key], bool):
-                            if kwargs[key].lower() in ['y', 'yes', 'true']:
-                                value = True
-                            else:
-                                value = False
-                        else:
-                            if kwargs[key].lower() in ['null', 'none']:
-                                value = None
-                            else:
-                                value = kwargs[key]
-
-                        if match and i[s_key] != value:
-                            do_write = False
-                        if not match and i[s_key] == value:
-                            do_write = False
-                    except KeyError as e:
-                        log.error('no key %s' % e)
-                        sys.exit(1)
-
-                if do_write:
-                    match_counter = match_counter + 1
-                    csv_writer.writerow(i)
+                csv_writer.writerow(i)
 
             csv_file.close()
             self.progress.finish()
-            log.info('Processed %i entries' % self.progress.progress_count())
-            log.info('Written %i entries to file' % match_counter)
+            log.info('Written %i entries' % self.progress.progress_count())
 
     def update_from_file(self, filename, field='issue', value='MANUAL FIX', force=False):
         with open(filename, 'r') as csv_file:
             reader = csv.DictReader(csv_file, fieldnames=self.CSV_FIELDNAMES)
-            row_count = sum(1 for row in reader)
+            row_count = sum(1 for _ in reader)
             csv_file.seek(0)
 
             progress = PrettyProgress(row_count)
@@ -606,7 +611,7 @@ class PhotoData(object):
                                 else:
                                     log.debug('there is data in exif')
                                     log.debug('not updating entry %s as there is already a date set %s.'
-                                                'use --force to overwrite' % (f, self.db[f]['exif']['datetime']))
+                                              'use --force to overwrite' % (f, self.db[f]['exif']['datetime']))
                             else:
                                 log.debug('a fix was already done for %s use --force to overwrite' % f)
                         except KeyError as e:
@@ -754,7 +759,7 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbose', help='debug output', action='store_true')
     parser.add_argument('--picture-database', help='picture db file', default='db.json')
-    parser.add_argument('-d', '--dir', help='process entire dir', required=True)
+    parser.add_argument('-d', '--dir', help='process entire dir', default=os.getenv('PHOTO_DIR', None))
 
     command = parser.add_subparsers(dest='command', metavar='command', required=True)
 
@@ -799,6 +804,9 @@ def get_parser():
 
 def main():
     args = get_parser()
+    if args.dir is None:
+        log.error('Use -d <path> or set environment variable PHOTO_DIR=<path>')
+        sys.exit(1)
 
     if args.verbose:
         log.setLevel(logging.DEBUG)
@@ -836,16 +844,20 @@ def main():
         photo_db = PhotoData.load(args.dir, args.picture_database)
 
         if args.command == 'list':
+            if args.filter is not None:
+                photo_db = photo_db.filter(**out_filter)
             if args.out is not None:
-                photo_db.csv_write(args.out, **out_filter)
+                photo_db.csv_write(args.out)
             else:
                 print('%s' % photo_db)
         if args.command == 'issues':
             p = photo_db.problems()
+            if args.filter is not None:
+                p = p.filter(**out_filter)
             if args.out is None:
                 print('%s' % p)
             else:
-                p.csv_write(args.out, **out_filter)
+                p.csv_write(args.out)
         if args.command == 'remove':
             photo_db.remove(filename=args.name, regex=args.regex)
         if args.command == 'map':
