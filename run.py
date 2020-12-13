@@ -81,6 +81,7 @@ class PrettyProgress(object):
 
     def step(self):
         if log.getEffectiveLevel() == logging.DEBUG:
+            self.done = self.done + 1
             return
         if self.done == 0:
             self.bar += '0%'
@@ -491,6 +492,9 @@ class PhotoData(object):
 
         for i in self:
             self.progress.step()
+            log.debug('matching: %s' % i)
+
+            matched_all = True
             for f in kwargs.keys():
                 match = True
                 k = f
@@ -508,13 +512,29 @@ class PhotoData(object):
                             value = None
                         else:
                             value = kwargs[f]
-                    if match and i[k] == value:
-                        found[i['filename']] = i
-                    if not match and i[k] != value:
-                        found[i['filename']] = i
-                except KeyError:
-                    if kwargs[f].lower() in ['none', 'null']:
-                        found[i['filename']] = i
+
+                    if match:
+                        log.debug('matching to: %s == %s' % (i[k], value))
+                        if i[k] != value:
+                            log.debug('no match')
+                            matched_all = False
+                        else:
+                            log.debug('match ok')
+                    else:
+                        log.debug('matching to: %s != %s' % (i[k], value))
+                        if i[k] == value:
+                            log.debug('no match')
+                            matched_all = False
+                        else:
+                            log.debug('match ok')
+                except KeyError as e:
+                    log.error('no key %s' % e)
+                    sys.exit(1)
+            if matched_all:
+                log.debug('All filters matched')
+                found[i['filename']] = i
+            else:
+                log.debug('Some filters dit not match')
 
         self.progress.finish()
         log.info('found %i items matchint % i fileters' % (len(list(found.keys())), len(list(kwargs.keys()))))
@@ -532,15 +552,6 @@ class PhotoData(object):
                     csv_file.close()
                     break
                 self.progress.step()
-
-                i['can_fix'] = None
-                if not i['ok']:
-                    if i['issue'] not in ['NO PICTURE FILE', 'NO METADATA',
-                                          'NO DATETIME IN EXIF', 'INVALID DATETIME ENTRY']:
-                        i['can_fix'] = True
-                    else:
-                        i['can_fix'] = False
-
                 csv_writer.writerow(i)
 
             csv_file.close()
@@ -663,7 +674,8 @@ class PhotoData(object):
             'datetime_original': None,
             'datetime_digitized': None,
             'ok': i['ok'],
-            'issue': None
+            'issue': None,
+            'can_fix': None
         }
 
         try:
@@ -677,6 +689,15 @@ class PhotoData(object):
             item['issue'] = i['issue']
         except KeyError:
             pass
+        try:
+            if not item['ok']:
+                if item['issue'] not in ['NO PICTURE FILE', 'NO METADATA',
+                                         'NO DATETIME IN EXIF', 'INVALID DATETIME ENTRY']:
+                    item['can_fix'] = True
+                else:
+                    item['can_fix'] = False
+        except KeyError:
+            item['can_fix'] = False
         return item
 
     def __len__(self):
